@@ -1,0 +1,84 @@
+---
+#2nd stage setup
+#usage: ansible-playbook -i hosts.ini astra2.yml
+- hosts: install
+  become: yes
+  remote_user: asergeev
+  gather_facts: yes
+  tasks:
+  - name: add vars
+    include_vars:
+      astra.yml
+  - name: delete default user
+    user:
+      name: user
+      state: absent
+
+    #enter domain b4 activating?
+  - block:
+    - name: copy dr web license file
+      copy:
+        src: files/certificate.pem
+        dest: /home/{{ user1 }}/certificate.pem
+    - name: activate dr web
+      shell: drweb-ctl esconnect 192.168.92.41:2193 --Certificate /home/{{ user1 }}/certificate.pem --Newbie
+      ignore_errors: yes
+
+  - block:
+    - name: copy sns license file
+      copy:
+        src: files/sns_key.lic
+        dest: /home/{{ user1 }}/sns_key.lic
+    - name: apply sns license
+      shell: /opt/secretnet/bin/snlicensectl -c /home/{{ user1 }}/sns_key.lic
+
+  - block:
+    - name: copy freerdp
+      copy:
+        src: files/freerdp_2.2.0-1_amd64.deb
+        dest: /home/{{ user1 }}/freerdp_2.2.0-1_amd64.deb
+    - name: install freerdp
+      apt:
+        deb: "/home/{{ user1 }}/freerdp_2.2.0-1_amd64.deb"
+        dpkg_options: "force-overwrite"
+    - name: copy freerdp script for admin
+      copy:
+        src: files/.ts_connect.sh
+        dest: "/home/{{ user1 }}/.ts_connect.sh"
+        mode: '0755'
+    - name: copy desktop link for admin
+      copy:
+        src: "files/MIS.desktop"
+        dest: "/home/{{ user1 }}/Desktop/MIS.desktop"
+    - name: copy freerdp script for user
+      copy:
+        src: files/.ts_connect.sh
+        dest: "/home/{{ user2 }}/.ts_connect.sh"
+        mode: '0755'
+    - name: copy desktop link for user
+      copy:
+        src: "files/MIS.desktop"
+        dest: "/home/{{ user2 }}/Desktop/MIS.desktop"
+
+    - name: copy notify script for astra
+      copy:
+        src: files/notify-all-astra.sh
+        dest: /usr/bin/notify-all
+        owner: "{{ user1 }}"
+        mode: '0755'
+
+  - block:
+    - name: deny incoming
+      shell: ufw default deny incoming
+    - name: allow outgoing
+      shell: ufw default allow outgoing
+    - name: allow 255
+      shell: ufw allow 225
+    - name: allow 631
+      shell: ufw allow 631
+    - name: enable fw
+      shell: ufw --force enable
+
+  - name: update wine
+    shell: curl -fsSL https://misupd.med.cap.ru/files/reinstall.sh | sudo -E bash -
+...

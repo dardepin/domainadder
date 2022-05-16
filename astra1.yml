@@ -1,0 +1,126 @@
+---
+# first stage setup. do not forget to change usernames, passwords and hostname by gensecrets tool
+#usage: ansible-playbook astra1.yml --ask-pass
+- hosts: install
+  become: yes
+  gather_facts: yes
+
+  tasks:
+  - name: add vars
+    include_vars:
+      astra.yml
+  - name: sync time
+    shell: ntpq -p
+  - name: proxy for wget
+    lineinfile:
+      path: /etc/wgetrc
+      line: "use_proxy=yes\nhttp_proxy=192.168.192.93:3128\nhttps_proxy=192.168.192.93:3128"
+
+  - name: install necessary packages
+    apt:
+      name:
+        - openssh-server
+        - mc
+        - sudo
+        - htop
+        - iotop
+        - lm-sensors
+        - python-apt
+        - freerdp2-x11
+        - zenity
+        - ufw
+        - yad
+        - libnss3-tools
+        - screen
+        - fly-admin-ad-client
+        - cifs-utils
+        - nfs-common
+        - pcscd
+      state: present
+  #setup users
+  - name: add admin user
+    user:
+      name: "{{ user1 }}"
+      comment: "{{ username1 }}"
+      shell: "/bin/bash"
+      groups: astra-admin, lpadmin
+      append: yes
+      password: "{{ password1 }}"
+  - name: add doctor user
+    user:
+      name: "{{ user2 }}"
+      comment: "{{ username2 }}"
+      shell: "/bin/bash"
+      password: "{{ password2 }}"
+  - name: add ssh key for admin
+    authorized_key:
+        user: "{{ user1 }}"
+        key: "{{ lookup('file', 'files/150.pub') }}"
+  - name: passwordless sudo
+    lineinfile:
+      dest: "/etc/sudoers"
+      regexp: "^%lpadmin"
+      line: "%lpadmin ALL=(ALL) NOPASSWD: ALL"
+
+  #setup hostname
+  - name: set a new hostname #hostname module cannot be used on platform Linux (\astralinuxce\). change by shell command
+    #hostname: name: "{{ hostname }}"
+    shell: hostnamectl set-hostname {{ hostname }}
+  - name: set hostname in /etc/hosts file
+    lineinfile:
+      path: "/etc/hosts"
+      regexp: "^127.0.1.1"
+      line: "127.0.1.1  {{ hostname }}  {{hostname}}.{{ domain }}"
+
+  #ssh setup. do not restart sshd
+  - name: change ssh port
+    lineinfile:
+      path: "/etc/ssh/sshd_config"
+      regexp: "^#Port 22"
+      line: "Port 225"
+  - name: change ssh auth
+    lineinfile:
+      path: "/etc/ssh/sshd_config"
+      regexp: "^#PasswordAuthentication yes"
+      line: "PasswordAuthentication no"
+  - name: disallow ssh for root
+    lineinfile:
+      path: "/etc/ssh/sshd_config"
+      regexp: "^#PermitRootLogin yes"
+      line: "PermitRootLogin no"
+
+  #chrome
+  - name: copy chrome
+    copy:
+      src: files/google-chrome-stable_current_amd64.deb
+      dest: /tmp/google-chrome-stable_current_amd64.deb
+  - name: install chrome
+    apt: deb=/tmp/google-chrome-stable_current_amd64.deb
+  - name: remove chrome installer
+    file:
+      path: /tmp/google-chrome-stable_current_amd64.deb
+      state: absent
+
+  #rutoken
+  - name: copy rutoken
+    copy:
+      src: files/libnpRutokenPlugin.deb
+      dest: /tmp/libnpRutokenPlugin.deb
+  - name: install rutoken
+    apt: deb=/tmp/libnpRutokenPlugin.deb
+  - name: remove rutoken installer
+    file:
+      path: /tmp/libnpRutokenPlugin.deb
+      state: absent
+
+  #russian cert
+  - name: copy russian root cert
+    copy:
+      src: files/russian_trust_root_ca.crt
+      dest: /usr/local/share/ca-certificates/russian_trust_root_ca.crt
+      mode: '0755'
+  - name: trust russian root cert
+    shell: update-ca-certificates
+
+  - name: restart a pc #reboot command required ansible 2.7
+    reboot:
