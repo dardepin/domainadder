@@ -15,6 +15,11 @@
     lineinfile:
       path: /etc/wgetrc
       line: "use_proxy=yes\nhttp_proxy=192.168.192.93:3128\nhttps_proxy=192.168.192.93:3128"
+  - name: changing repos to yandex
+    lineinfile:
+      path: /etc/apt/sources.list
+      regexp: "download.astralinux.ru"
+      line: "mirror.yandex.ru"
 
   - name: install necessary packages
     apt:
