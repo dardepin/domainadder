@@ -1,0 +1,180 @@
+---
+#setup ubuntu 20.04
+#usage: ansible-playbook ubuntu.yml. Supposed hostname was allready setup and joined 2 domain
+- hosts: ubuntu-setup
+  become: yes
+  remote_user: test
+
+  tasks:
+  - name: add vars
+    include_vars:
+      ubuntu.yml
+  - name: proxy for wget #commented, cause no proxy req
+    lineinfile:
+      path: /etc/wgetrc
+      line: "#use_proxy=yes\n#http_proxy=192.168.192.93:3128\n#https_proxy=192.168.192.93:3128"
+  - name: sync time with hw clock
+    shell: sudo timedatectl set-local-rtc 1 --adjust-system-clock
+
+  - block:
+    - name: install necessary packages
+      apt:
+        name:
+          - mc
+          - sudo
+          - htop
+          - iotop
+          - lm-sensors
+          - python-apt
+          - ufw
+          - libnss3-tools
+          - cifs-utils
+          - nfs-common
+          - pcscd
+          - remmina
+          - tmux
+        state: present
+    - name: remove ippusbxd
+      apt:
+        name: ippusbxd
+        state: absent
+        purge: yes
+    #work with users here
+    - name: add admin user
+      user:
+        name: "{{ user1 }}"
+        comment: "{{ username1 }}"
+        shell: "/bin/bash"
+        groups: sudo, lpadmin
+        append: yes
+        password: "{{ password1 }}"
+    - name: add doctor user
+      user:
+        name: "{{ user2 }}"
+        comment: "{{ username2 }}"
+        shell: "/bin/bash"
+        password: "{{ password2 }}"
+    - name: add ssh key for admin
+      authorized_key:
+          user: "{{ user1 }}"
+          key: "{{ lookup('file', 'files/150.pub') }}"
+    - name: passwordless sudo for admin
+      lineinfile:
+        dest: "/etc/sudoers"
+        line: "{{ user1 }} ALL=(ALL) NOPASSWD:ALL"
+    #ssh setup. do not restart sshd
+  - name: change ssh port
+    lineinfile:
+      path: "/etc/ssh/sshd_config"
+      regexp: "^#Port 22"
+      line: "Port 225"
+  - name: change ssh auth
+    lineinfile:
+      path: "/etc/ssh/sshd_config"
+      regexp: "^#PasswordAuthentication yes"
+      line: "PasswordAuthentication no"
+  - name: disallow ssh for root
+    lineinfile:
+      path: "/etc/ssh/sshd_config"
+      regexp: "^#PermitRootLogin yes"
+      line: "PermitRootLogin no"
+    #chrome
+  - name: copy chrome
+    copy:
+      src: files/google-chrome-stable_current_amd64.deb
+      dest: /tmp/google-chrome-stable_current_amd64.deb
+  - name: install chrome
+    apt: deb=/tmp/google-chrome-stable_current_amd64.deb
+  - name: remove chrome installer
+    file:
+      path: /tmp/google-chrome-stable_current_amd64.deb
+      state: absent
+  #rutoken
+  - name: copy rutoken
+    copy:
+      src: files/libnpRutokenPlugin.deb
+      dest: /tmp/libnpRutokenPlugin.deb
+  - name: install rutoken
+    apt: deb=/tmp/libnpRutokenPlugin.deb
+  - name: remove rutoken installer
+    file:
+      path: /tmp/libnpRutokenPlugin.deb
+      state: absent
+  #russian cert
+  - name: copy russian root cert
+    copy:
+      src: files/russian_trust_root_ca.crt
+      dest: /usr/local/share/ca-certificates/russian_trust_root_ca.crt
+      mode: '0755'
+  - name: trust russian root cert
+    shell: update-ca-certificates
+
+  - block: #dr web
+    - name: copy dr web license file
+      copy:
+        src: files/certificate.pem
+        dest: /home/{{ user1 }}/certificate.pem
+    - name: activate dr web
+      shell: drweb-ctl esconnect 192.168.92.41:2193 --Certificate /home/{{ user1 }}/certificate.pem --Newbie
+      ignore_errors: yes
+
+  - block: #firewall
+    - name: deny incoming
+      shell: ufw default deny incoming
+    - name: allow outgoing
+      shell: ufw default allow outgoing
+    - name: allow 255
+      shell: ufw allow 225
+    - name: allow 631
+      shell: ufw allow 631
+    - name: enable fw
+      shell: ufw --force enable
+  
+  - block: # vipnet cfg
+    - name: iptables off
+      lineinfile:
+        dest: "/etc/vipnet.conf"
+        regexp: ";iptables=off"
+        line: "iptables=off"
+    - name: change dns
+      lineinfile:
+        dest: "/etc/vipnet.conf"
+        regexp: "trusted=8.8.8.8"
+        line: "trusted=192.168.92.3"
+
+  - block: # disabling proxy everythere
+    - name: for apt
+      copy:
+        src: /etc/apt/apt.conf
+        dest: /etc/apt/apt.conf.bak
+    - name: del apt.conf
+      file:
+        src: /etc/apt/apt.conf
+        state: absent
+    - name: for env
+      copy:
+        src: /etc/environment
+        dest: /etc/environment.bak
+    - name: del environment
+      file:
+        src: /etc/environment
+        state: absent
+    - name: for profile.d
+      copy:
+        src: /etc/profile.d/proxy.sh
+        dest: /etc/profile.d/proxy.sh.bak
+    - name: del profile.d
+      file:
+        src: /etc/profile.d/proxy.sh
+        state: absent
+  - name: egisz and esia
+    lineinfile:
+      dest: /etc/hosts
+      line: "185.194.33.65 ia.egisz.rosminzdrav.ru\n109.207.2.205 esia.gosuslugi.ru"
+
+  - name: update wine
+    shell: curl -fsSL https://misupd.med.cap.ru/files/reinstall.sh | sudo -E bash -
+
+  - name: restart a pc #reboot command required ansible 2.7
+    reboot:
+...
