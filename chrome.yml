@@ -1,0 +1,68 @@
+---
+#install new chrome, rutoken and russian root crt for users
+#using: ansible-playbook chrome.yml
+- hosts: amb1
+  become: yes
+  remote_user: asergeev
+  gather_facts: yes
+  #vars: #move to group vars
+  tasks:
+  - name: facts gathering
+    package_facts:
+      manager: auto
+  - name: install reqiured packet
+    apt:
+      name:
+        - libnss3-tools
+        - python-apt
+      state: present
+
+  - block: #check chrome
+    - name: newest chrome?
+      debug:
+        msg: "google is not installed or outdated"
+    - name: copy google chrome
+      copy:
+        src: files/google-chrome-stable_current_amd64.deb
+        dest: /tmp/google-chrome-stable_current_amd64.deb
+    - name: install new chrome
+      apt: deb="/tmp/google-chrome-stable_current_amd64.deb"
+    - name: remove chrome installer
+      file: path='/tmp/google-chrome-stable_current_amd64.deb' state=absent
+    when: "'google-chrome-stable' not in ansible_facts.packages or ansible_facts.packages['google-chrome-stable'][0].version not in NEWEST_CHROME"
+
+  - block: #check rutoken
+    - name: newest rutoken?
+      debug:
+        msg: "rutoken is not installed or outdated"
+    - name: copy rutoken?
+      copy:
+        src: files/libnpRutokenPlugin_4.6.0-1_amd64.deb
+        dest: /tmp/libnpRutokenPlugin_4.6.0-1_amd64.deb
+    - name: install rutoken
+      apt: deb="/tmp/libnpRutokenPlugin_4.6.0-1_amd64.deb"
+    - name: remove rutoken installer
+      file: path='/tmp/libnpRutokenPlugin_4.6.0-1_amd64.deb' state=absent
+    when:  "'rutokenplugin' not in ansible_facts.packages or ansible_facts.packages['rutokenplugin'][0].version not in NEWEST_RUTOKEN"
+
+  - name: copy cert
+    copy:
+      src: files/russian_trust_root_ca.crt
+      dest: /usr/local/share/ca-certificates/russian_trust_root_ca.crt
+      mode: '0755'
+
+  - name: install cert for all users
+    shell: update-ca-certificates
+
+  - name: find home dirs
+    find:
+      paths: /home
+      patterns: "nssdb"
+      recurse: yes
+      file_type: directory
+    register: homes
+  - name: installing cert to users home folders
+    shell: certutil -d sql:{{ item.path }} -A -t TC -n "Russian Trusted Root"  -i /usr/local/share/ca-certificates/russian_trust_root_ca.crt
+    with_items: "{{ homes.files }}"
+    ignore_errors: yes
+...
