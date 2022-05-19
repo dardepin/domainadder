@@ -1,7 +1,7 @@
 ---
-#setup ubuntu 20.04
-#usage: ansible-playbook ubuntu.yml. Supposed hostname was allready setup and joined 2 domain
-- hosts: ubuntu-setup
+#setup for ubuntu 20.04. pre-required nopasswd sudo
+#usage: ansible-playbook ubuntu.yml --ask-pass --ask-vault-pass
+- hosts: ubuntu
   become: yes
   remote_user: test
 
@@ -14,7 +14,43 @@
       path: /etc/wgetrc
       line: "#use_proxy=yes\n#http_proxy=192.168.192.93:3128\n#https_proxy=192.168.192.93:3128"
   - name: sync time with hw clock
-    shell: sudo timedatectl set-local-rtc 1 --adjust-system-clock
+    shell: timedatectl set-local-rtc 1 --adjust-system-clock
+
+  #hostname and ad
+  - block:
+    - name: set a new hostname
+      hostname:
+        name: "{{ hostname }}.{{ domain }}"  
+    - name: set hostname in /etc/hosts
+      lineinfile:
+        path: "/etc/hosts"
+        regexp: "^127.0.1.1"
+        line: "127.0.1.1  {{hostname}}.{{ domain }} {{ hostname }}"
+
+    - name: first reboot
+      reboot:
+
+    - name: add to domain
+      shell: "echo {{ domain_password }} | realm join --verbose --user={{ domain_admin }} --computer-ou=OU=Компьютеры,OU=Yaltch-CRB,OU=CRB,OU=LPU,OU=MED,DC=med,DC=cap,DC=ru {{ domain }} --install=/"
+      register: join_res
+    - name: display sssd res
+      debug:
+        msg: "res: {{ join_res.rc }}; msg: {{ join_res.stdout }}"
+    - name: copy realmd
+      copy:
+        src: files/realmd.conf
+        dest: /etc/realmd.conf
+    - name: copy common-session
+      copy:
+        src: files/common-session
+        dest: /etc/pam.d/common-session
+    - name: copy sssd.conf
+      copy:
+        src: files/sssd.conf
+        dest: /etc/sssd/sssd.conf
+
+    - name: second reboot
+      reboot:
 
   - block:
     - name: install necessary packages
@@ -39,6 +75,8 @@
         name: ippusbxd
         state: absent
         purge: yes
+
+  - block:
     #work with users here
     - name: add admin user
       user:
@@ -61,23 +99,9 @@
     - name: passwordless sudo for admin
       lineinfile:
         dest: "/etc/sudoers"
-        line: "{{ user1 }} ALL=(ALL) NOPASSWD:ALL"
-    #ssh setup. do not restart sshd
-  - name: change ssh port
-    lineinfile:
-      path: "/etc/ssh/sshd_config"
-      regexp: "^#Port 22"
-      line: "Port 225"
-  - name: change ssh auth
-    lineinfile:
-      path: "/etc/ssh/sshd_config"
-      regexp: "^#PasswordAuthentication yes"
-      line: "PasswordAuthentication no"
-  - name: disallow ssh for root
-    lineinfile:
-      path: "/etc/ssh/sshd_config"
-      regexp: "^#PermitRootLogin yes"
-      line: "PermitRootLogin no"
+        regexp: "^%sudo"
+        line: "%sudo ALL=(ALL) NOPASSWD: ALL"
+
     #chrome
   - name: copy chrome
     copy:
@@ -117,18 +141,6 @@
     - name: activate dr web
       shell: drweb-ctl esconnect 192.168.92.41:2193 --Certificate /home/{{ user1 }}/certificate.pem --Newbie
       ignore_errors: yes
-
-  - block: #firewall
-    - name: deny incoming
-      shell: ufw default deny incoming
-    - name: allow outgoing
-      shell: ufw default allow outgoing
-    - name: allow 255
-      shell: ufw allow 225
-    - name: allow 631
-      shell: ufw allow 631
-    - name: enable fw
-      shell: ufw --force enable
   
   - block: # vipnet cfg
     - name: iptables off
@@ -144,37 +156,56 @@
 
   - block: # disabling proxy everythere
     - name: for apt
-      copy:
-        src: /etc/apt/apt.conf
-        dest: /etc/apt/apt.conf.bak
-    - name: del apt.conf
-      file:
-        src: /etc/apt/apt.conf
-        state: absent
+      shell: mv /etc/apt/apt.conf /etc/apt/apt.conf.bak
     - name: for env
-      copy:
-        src: /etc/environment
-        dest: /etc/environment.bak
-    - name: del environment
-      file:
-        src: /etc/environment
-        state: absent
-    - name: for profile.d
-      copy:
-        src: /etc/profile.d/proxy.sh
-        dest: /etc/profile.d/proxy.sh.bak
-    - name: del profile.d
-      file:
-        src: /etc/profile.d/proxy.sh
-        state: absent
+      shell: mv /etc/environment /etc/environment.bak
+    - name: for proxy.sh
+      shell: mv /etc/profile.d/proxy.sh /etc/profile.d/proxy.sh.bak
+  #must be changed
   - name: egisz and esia
     lineinfile:
       dest: /etc/hosts
-      line: "185.194.33.65 ia.egisz.rosminzdrav.ru\n109.207.2.205 esia.gosuslugi.ru"
+      line: "46.61.237.65 ia.egisz.rosminzdrav.ru\n185.194.33.90 vaccine.egisz.rosminzdrav.ru\n109.207.2.205 esia.gosuslugi.ru\n"
+
+  - name: cups config
+    copy:
+      src: files/cupsd_ubuntu.conf
+      dest: /etc/cups/cupsd.conf
 
   - name: update wine
     shell: curl -fsSL https://misupd.med.cap.ru/files/reinstall.sh | sudo -E bash -
 
-  - name: restart a pc #reboot command required ansible 2.7
+  #ssh setup. do not restart sshd
+  - name: change ssh port
+    lineinfile:
+      path: "/etc/ssh/sshd_config"
+      regexp: "^#Port 22"
+      line: "Port 225"
+  - name: change ssh auth
+    lineinfile:
+      path: "/etc/ssh/sshd_config"
+      regexp: "^#PasswordAuthentication yes"
+      line: "PasswordAuthentication no"
+  - name: disallow ssh for root
+    lineinfile:
+      path: "/etc/ssh/sshd_config"
+      regexp: "^#PermitRootLogin yes"
+      line: "PermitRootLogin no"
+
+  - block: #firewall
+    - name: deny incoming
+      shell: ufw default deny incoming
+    - name: allow outgoing
+      shell: ufw default allow outgoing
+    - name: allow ssh
+      shell: ufw allow 225
+    - name: allow cups
+      shell: ufw allow 631
+    - name: allow vnc
+      shell: ufw allow 5900
+    - name: enable fw
+      shell: ufw --force enable
+
+  - name: restart a pc
     reboot:
 ...

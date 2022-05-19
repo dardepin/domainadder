@@ -14,7 +14,6 @@
       name: user
       state: absent
 
-    #enter domain b4 activating?
   - block:
     - name: copy dr web license file
       copy:
@@ -72,10 +71,12 @@
       shell: ufw default deny incoming
     - name: allow outgoing
       shell: ufw default allow outgoing
-    - name: allow 255
+    - name: allow ssh
       shell: ufw allow 225
-    - name: allow 631
+    - name: allow cups
       shell: ufw allow 631
+    - name: allow vnc
+      shell: ufw allow 5900
     - name: enable fw
       shell: ufw --force enable
 

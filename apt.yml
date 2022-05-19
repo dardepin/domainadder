@@ -1,0 +1,16 @@
+---
+#change apt sources.list to yandex
+#usage: ansible-playbook apt.yml
+- hosts: all
+  become: yes
+  remote_user: asergeev
+
+  tasks:
+  - name: making backup
+    shell: mv /etc/apt/sources.list /etc/apt/sources.list.old
+  - name: change repos
+    copy:
+      src: files/sources_astra.list
+      dest: /etc/apt/sources.list
+      mode: '0644'
+...

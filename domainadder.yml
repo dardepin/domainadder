@@ -27,4 +27,6 @@
   - name: display sssd res
     debug:
       msg: "res: {{ sssd_res.rc }}; msg: {{ sssd_res.stdout }}"
+  - name: reboot pc
+    reboot:
 ...

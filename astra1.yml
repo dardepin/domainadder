@@ -94,6 +94,11 @@
       regexp: "^#PermitRootLogin yes"
       line: "PermitRootLogin no"
 
+  - name: cups config
+    copy:
+      src: files/cupsd_astra.conf
+      dest: /etc/cups/cupsd.conf
+
   #chrome
   - name: copy chrome
     copy:
