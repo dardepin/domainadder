@@ -27,6 +27,12 @@
         regexp: "^127.0.1.1"
         line: "127.0.1.1  {{hostname}}.{{ domain }} {{ hostname }}"
 
+    - name: disable auto upgrades
+      copy:
+        src: files/20auto-upgrades
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        mode: '0644'
+
     - name: first reboot
       reboot:
 
