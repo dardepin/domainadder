@@ -1,0 +1,106 @@
+#wine updating using standalone wine installer
+#usage: ansible-playbook mis2.yml
+- hosts: mis
+  become: yes
+  remote_user: asergeev
+  gather_facts: yes
+
+  tasks:
+  - name: copy notify script for astra
+    copy:
+      src: files/notify-all-astra.sh
+      dest: /usr/bin/notify-all.sh
+      owner: root
+      mode: '0700'
+    when: ansible_distribution == "Astra Linux (Orel)"
+
+  - name: copy notify script for ubuntu
+    copy:
+      src: files/notify-all-ubuntu.sh
+      dest: /usr/bin/notify-all.sh
+      owner: root
+      mode: '0700'
+    when: ansible_distribution == "Ubuntu"
+
+  - name: check for existing wine install
+    stat:
+      path: /opt/wine/bin/wine
+    register: result1
+    tags: winemis
+
+  - name: get current wine version
+    shell: /opt/wine/bin/wine --version
+    register: CURWINEVER
+    when: "result1.stat.exists"
+    failed_when: no
+    changed_when: no
+    tags: winemis
+
+  - block:
+      - debug:
+          msg: "nothing to upgrade, exiting"
+      - meta: end_play
+    when: "result1.stat.exists and CURWINEVER.stdout and CURWINEVER.stdout in 'wine-7.8'"
+
+  - name: continuing
+    debug: msg = "need to update wine from {{ CURWINEVER }} to wine-7.8"
+
+  - name: warn users to close app
+    shell: /usr/bin/notify-all.sh -t 60000 "Предупреждение" "Идет обновление. МИС закроется через минуту, не запускайте МИС и Вакцинопорфила>
+
+  - name: Sleep for minute
+    wait_for:
+      timeout: 60
+    delegate_to: localhost
+
+  - name: get running mis processes
+    shell: "ps -few | grep -v grep | grep -w 'client.exe' | awk '{print $2}'"
+    register: running_processes
+  - name: kill running mis processes
+    shell: "kill {{ item }}"
+    with_items: "{{ running_processes.stdout_lines }}"
+  - wait_for:
+      path: "/proc/{{ item }}/status"
+      state: absent
+    with_items: "{{ running_processes.stdout_lines }}"
+    ignore_errors: yes
+    register: killed_processes
+  - name: force kill stuck mis processes
+    shell: "kill -9 {{ item }}"
+    with_items: "{{ killed_processes.results | select('failed') | map(attribute='item') | list }}"
+
+  - name: find winemis in home dirs
+    find:
+      paths: /home
+      patterns: "winemis"
+      recurse: yes
+      file_type: directory
+    register: homes
+  - name: deleting mis dirs, if exists
+    file:
+      path: "{{ item.path }}/winemis/"
+      state: absent
+    with_items: "{{ homes.files }}"
+    ignore_errors: yes
+
+  - block:
+    - name: copy stanalone wine installer
+      copy:
+        src: files/wine-7.8-semioffline.zip
+        dest: /tmp/wine-7.8-semioffline.zip
+    - name: extract installer
+      shell: unzip /tmp/wine-7.8-semioffline.zip -d /tmp/winemis
+    - name: make executable
+      file:
+        path: /tmp/winemis/xreinstall.sh
+        state: touch
+        owner: root
+        mode: u+x
+    - name: update wine
+      shell: ./xreinstall.sh
+      args:
+        chdir: /tmp/winemis/
+
+  - name: warn users to close app
+    shell: /usr/bin/notify-all.sh -t 60000 "Предупреждение" "Обновление завершено. Можно запускать МИС"
+...
