@@ -1,7 +1,7 @@
 ---
-#enter pc to domain. do not forget to modify ansible.cfg
-#usage: ansible-playbook domainadder.yml --ask-vault-pass
-- hosts: install
+#enter pc to med.cap.ru domain
+#usage: ansible-playbook domain.yml --ask-vault-pass
+- hosts: setup
   become: yes
   remote_user: asergeev
   gather_facts: yes
@@ -11,15 +11,15 @@
     include_vars:
       file: astra.yml
   - name: join to ad
-    shell: "echo -n {{ domain_password }} | adcli join --verbose --domain {{ domain }} --domain-realm {{ domain }} --domain-controller 192.168.92.3 --computer-ou OU=Компьютеры,OU=Yaltch-CRB,OU=CRB,OU=LPU,OU=MED,DC=med,DC=cap,DC=ru --login-type user --user {{ domain_admin }} --stdin-password"
+    shell: "echo -n {{ domain_password }} | sudo adcli join --verbose --domain {{ domain }} --domain-realm {{ domain|upper }} --domain-controller 192.168.92.3 --computer-ou OU=Компьютеры,OU=Yaltch-CRB,OU=CRB,OU=LPU,OU=MED,DC=med,DC=cap,DC=ru --login-type user --user {{ domain_admin }} --stdin-password --verbose"
     #args:
     #  stdin: "{{ domain_password }}\n"
     register: adcli_res
   - name: display adcli res
     debug:
-      msg: "res: {{ adcli_res.rc }}; msg: {{ adcli_res.stdout }}"
+      msg: "res: {{ adcli_res.rc }}; msg: {{ adcli_res }}"
   - name: add computer to ad
-    shell: "echo {{ domain_password }} | sudo astra-ad-sssd-client -d {{ domain }} -u {{ domain_admin }} -n 192.168.92.3 -y -px"
+    shell: "echo {{ domain_password }} | sudo astra-ad-sssd-client -d {{ domain }} -u {{ domain_admin }} -n 192.168.92.2 -y -px"
     #args:
     #  stdin: "{{ domain_password }}\n"
     #cat /root/pass | sudo astra-ad-sssd-client -d domain.net -u admin -px -y
@@ -27,6 +27,6 @@
   - name: display sssd res
     debug:
       msg: "res: {{ sssd_res.rc }}; msg: {{ sssd_res.stdout }}"
-  - name: reboot pc
+  - name: restart a pc #reboot command required ansible 2.7
     reboot:
 ...
