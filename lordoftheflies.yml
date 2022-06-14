@@ -1,0 +1,26 @@
+#deleting all .fly entries in /home dir
+#usage ansible-playbook lordoftheflies.yml
+#find flycatcher script from repo
+---
+- hosts: setup
+  become: yes
+  remote_user: asergeev
+  gather_facts: yes
+  tasks:
+  - block:
+    - name: copy flycatcher script
+      copy:
+        src: files/flycatcher.sh
+        dest: /usr/sbin/flycatcher.sh
+        owner: root
+        mode: '755'
+    - name: install crontab
+      cron:
+        name: "deleting all .fly entries in /home dir on a startup"
+        special_time: reboot
+        job: "/usr/sbin/flycatcher.sh"
+    - name: exec now
+      shell: "sudo /usr/sbin/flycatcher.sh"
+      register: findres
+      failed_when: findres.rc > 1
+...
