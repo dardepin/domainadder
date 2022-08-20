@@ -3,7 +3,7 @@
 #place zabbix_agentd.conf to files dir.
 #exec b4 run: ansible-galaxy collection install community.general
 #run: ansible-playbook zabbix.yml
-- hosts: virt
+- hosts: zabbix-setup
   become: yes
   gather_facts: yes
 
@@ -49,11 +49,17 @@
       state: present
       update_cache: yes
 
+    #configs
+  - name: original config exists?
+    stat:
+      path: /etc/zabbix/zabbix_agent2.conf.bak
+    register: old_config
   - name: backup zabbix config
     copy:
       remote_src: yes
       src: /etc/zabbix/zabbix_agent2.conf
       dest: /etc/zabbix/zabbix_agent2.conf.bak
+    when: not old_config.stat.exists
   - name: copy zabbix config
     copy:
       src: files/zabbix_agentd.conf
