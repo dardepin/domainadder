@@ -1,0 +1,92 @@
+#for setup zabbix client and other stuff
+#ansible-playbook zabbix-ubuntu.yml --ask-pass
+- hosts: ubuntus
+  become: yes
+  become_method: sudo
+  gather_facts: yes
+
+  tasks:
+  - name: print release
+    debug: msg="{{ ansible_distribution }}"
+  - name: download zabbix repo locally
+    get_url:
+      url: https://repo.zabbix.com/zabbix/6.2/ubuntu/pool/main/z/zabbix-release/zabbix-release_6.2-1%2Bubuntu20.04_all.deb
+      dest: files/zabbix-release_6.2-1+ubuntu20.04_all.deb
+    #environment:
+      #https_proxy: "http://192.168.192.93:3128"
+    delegate_to: 127.0.0.1
+    run_once: yes
+    when: ansible_distribution == 'Ubuntu'
+  
+  #zabbix repo
+  - name: copy zabbix
+    copy:
+      src: files/zabbix-release_6.2-1+ubuntu20.04_all.deb
+      dest: /tmp/zabbix-release_6.2-1+ubuntu20.04_all.deb
+    when: ansible_distribution == 'Ubuntu'
+
+  - name: install zabbix repo
+    apt:
+      deb: /tmp/zabbix-release_6.2-1+ubuntu20.04_all.deb
+    when: ansible_distribution == 'Ubuntu'
+
+  - name: remove zabbix installer
+    file:
+      path: /tmp/zabbix-release_6.2-1+ubuntu20.04_all.deb
+      state: absent
+    when: ansible_distribution == 'Ubuntu'
+
+  - name: https -> http in zabbix plugin repo list
+    replace:
+      path: /etc/apt/sources.list.d/zabbix-agent2-plugins.list
+      regexp: 'https'
+      replace: http
+
+  - name: https -> http in zabbix repo list
+    replace:
+      path: /etc/apt/sources.list.d/zabbix.list
+      regexp: 'https'
+      replace: http
+  
+  - name: install zabbix agent and etc
+    apt: 
+      name:
+        - zabbix-agent2
+        - inxi
+        - hwinfo
+      state: present
+      update_cache: yes
+  
+  #zabbix cfg
+  - name: original config exists?
+    stat:
+      path: /etc/zabbix/zabbix_agent2.conf.bak
+    register: old_config
+  - name: backup zabbix config
+    copy:
+      remote_src: yes
+      src: /etc/zabbix/zabbix_agent2.conf
+      dest: /etc/zabbix/zabbix_agent2.conf.bak
+    when: not old_config.stat.exists
+  - name: copy zabbix config
+    copy:
+      src: files/zabbix_agentd.conf
+      dest: /etc/zabbix/zabbix_agent2.conf
+
+  - name: enable & start zabbix-agent
+    service:
+      name: zabbix-agent2
+      enabled: yes
+      state: started
+    #('/etc/sudoers.d')
+  - name: edit sudoers 1
+    community.general.sudoers:
+      name: zabbix
+      user: zabbix
+      runas: root
+      commands:
+        - /sbin/hwinfo
+        - /usr/sbin/hwinfo
+        - /opt/secretnet/bin/snlicensectl
+      nopassword: yes
+...

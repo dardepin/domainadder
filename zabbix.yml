@@ -79,6 +79,6 @@
       commands:
         - /sbin/hwinfo
         - /usr/sbin/hwinfo
-        - /opt/secretnet/snlicensectl
+        - /opt/secretnet/bin/snlicensectl
       nopassword: yes
 ...
