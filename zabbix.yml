@@ -1,45 +1,67 @@
-#https://repo.zabbix.com/zabbix/6.0/debian/pool/main/z/zabbix-release/zabbix-release_6.0-3+debian9_all.deb
-#for setup zabbix client and other stuff
+#for setup zabbix client and other stuff for astra2.12 and ubuntu 20.04
 #place zabbix_agentd.conf to files dir.
 #exec b4 run: ansible-galaxy collection install community.general
 #run: ansible-playbook zabbix.yml
 - hosts: zabbix-setup
   become: yes
+  become_method: sudo
   gather_facts: yes
 
   tasks:
-  - name: download zabbix-agent local
-    get_url:
-      url: https://repo.zabbix.com/zabbix/6.0/debian/pool/main/z/zabbix-release/zabbix-release_6.0-3+debian9_all.deb
-      dest: files/zabbix-release_6.0-3+debian9_all.deb
-    environment:
-      https_proxy: "http://192.168.192.93:3128"
-    delegate_to: 127.0.0.1
-    run_once: yes
+  - name: print release
+    debug: msg="{{ ansible_distribution }}"
 
-  - name: copy zabbix
-    copy:
-      src: files/zabbix-release_6.0-3+debian9_all.deb
-      dest: /tmp/zabbix-release_6.0-3+debian9_all.deb
+  - name: download zabbix-agent for ubuntu
+    block:
+    - name: download zabbix repo locally
+      get_url:
+        url: https://repo.zabbix.com/zabbix/6.2/ubuntu/pool/main/z/zabbix-release/zabbix-release_6.2-1%2Bubuntu20.04_all.deb
+        dest: files/zabbix-release_6.2-1+ubuntu20.04_all.deb
+      environment:
+        https_proxy: "http://192.168.192.93:3128"
+      delegate_to: 127.0.0.1
+      run_once: yes
+
+    - name: copy zabbix repo
+      copy:
+        src: files/zabbix-release_6.2-1+ubuntu20.04_all.deb
+        dest: /tmp/zabbix-release.deb
+    when: ansible_distribution == 'Ubuntu'
+
+  - name: download zabbix-agent for astra
+    block:
+    - name: download zabbix repo locally
+      get_url:
+        url: https://repo.zabbix.com/zabbix/6.0/debian/pool/main/z/zabbix-release/zabbix-release_6.0-3+debian9_all.deb
+        dest: files/zabbix-release_6.0-3+debian9_all.deb
+      environment:
+        https_proxy: "http://192.168.192.93:3128"
+      delegate_to: 127.0.0.1
+      run_once: yes
+    - name: copy zabbix repo
+      copy:
+        src: files/zabbix-release_6.0-3+debian9_all.deb
+        dest: /tmp/zabbix-release.deb
+    when: ansible_distribution == 'Astra Linux (Orel)'
+
+  #install zabbi repo
   - name: install zabbix repo
     apt:
-      deb: /tmp/zabbix-release_6.0-3+debian9_all.deb
+      deb: /tmp/zabbix-release.deb
   - name: remove zabbix installer
     file:
-      path: /tmp/zabbix-release_6.0-3+debian9_all.deb
+      path: /tmp/zabbix-release.deb
       state: absent
   - name: https -> http in zabbix plugin repo list
     replace:
       path: /etc/apt/sources.list.d/zabbix-agent2-plugins.list
       regexp: 'https'
       replace: http
-
   - name: https -> http in zabbix repo list
     replace:
       path: /etc/apt/sources.list.d/zabbix.list
       regexp: 'https'
       replace: http  
-  
   - name: install zabbix agent and etc
     apt: 
       name:
@@ -49,7 +71,7 @@
       state: present
       update_cache: yes
 
-    #configs
+  #configs
   - name: original config exists?
     stat:
       path: /etc/zabbix/zabbix_agent2.conf.bak
@@ -70,7 +92,6 @@
       name: zabbix-agent2
       enabled: yes
       state: started
-    #('/etc/sudoers.d')
   - name: edit sudoers 1
     community.general.sudoers:
       name: zabbix
