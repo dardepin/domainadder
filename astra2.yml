@@ -1,0 +1,118 @@
+---
+# second stage setup of Astra 2.12.
+# usage: ansible-playbook astra2.yml --ask-vault-pass
+- hosts: setup
+  become: true
+  remote_user: asergeev
+  gather_facts: true
+  tasks:
+    - name: Add vars
+      ansible.builtin.include_vars:
+        astra.yml
+    - name: Delete default user
+      ansible.builtin.user:
+        name: user
+        state: absent
+
+    - name: DRW
+      block:
+        - name: Copy drweb license file
+          ansible.builtin.copy:
+            src: files/certificate.pem
+            dest: /home/{{ user1 }}/certificate.pem
+            mode: '0644'
+        - name: Activate drweb
+          ansible.builtin.command: drweb-ctl esconnect 192.168.92.41:2193 --Certificate /home/{{ user1 }}/certificate.pem --Newbie
+          register: result1
+          failed_when: "result1.rc != 0 and result1.rc != 69"
+          changed_when: false
+
+    - name: SNS
+      block:
+        - name: Copy sns license file
+          ansible.builtin.copy:
+            src: files/sns_key.lic
+            dest: /home/{{ user1 }}/sns_key.lic
+            mode: '0600'
+        - name: Apply sns license
+          ansible.builtin.command: /opt/secretnet/bin/snlicensectl -c /home/{{ user1 }}/sns_key.lic
+          changed_when: false
+
+    - name: RDP
+      block:
+        - name: Copy freerdp
+          ansible.builtin.copy:
+            src: files/freerdp_2.2.0-1_amd64.deb
+            dest: /home/{{ user1 }}/freerdp_2.2.0-1_amd64.deb
+            mode: '0644'
+        - name: Install freerdp
+          ansible.builtin.apt:
+            deb: "/home/{{ user1 }}/freerdp_2.2.0-1_amd64.deb"
+            dpkg_options: "force-overwrite"
+        - name: Copy freerdp script for admin
+          ansible.builtin.copy:
+            src: files/.ts_connect.sh
+            dest: "/home/{{ user1 }}/.ts_connect.sh"
+            mode: '0755'
+        - name: Copy desktop link for admin
+          ansible.builtin.copy:
+            src: "files/MIS.desktop"
+            dest: "/home/{{ user1 }}/Desktop/MIS.desktop"
+            mode: '755'
+
+        - name: Copy freerdp script for user
+          ansible.builtin.copy:
+            src: files/.ts_connect.sh
+            dest: "/home/{{ user2 }}/.ts_connect.sh"
+            mode: '0755'
+        - name: Copy desktop link for user
+          ansible.builtin.copy:
+            src: "files/MIS.desktop"
+            dest: "/home/{{ user2 }}/Desktop/MIS.desktop"
+            mode: '755'
+
+    - name: UFW
+      block:
+        - name: Deny incoming
+          ansible.builtin.command: ufw default deny incoming
+          changed_when: false
+        - name: Allow outgoing
+          ansible.builtin.command: ufw default allow outgoing
+          changed_when: false
+        - name: Allow ssh
+          ansible.builtin.command: ufw allow 225
+          changed_when: false
+        - name: Allow cups
+          ansible.builtin.command: ufw allow 631
+          changed_when: false
+        - name: Allow vnc
+          ansible.builtin.command: ufw allow 5900
+          changed_when: false
+        - name: Enable fw
+          ansible.builtin.command: ufw --force enable
+          changed_when: false
+
+    - name: WINE
+      block:
+        - name: Copy stanalone wine installer
+          ansible.builtin.copy:
+            src: files/wine-7.8-semioffline.zip
+            dest: /tmp/wine-7.8-semioffline.zip
+            mode: '0644'
+        - name: Extract installer
+          ansible.builtin.unarchive:
+            src: /tmp/wine-7.8-semioffline.zip
+            dest: /tmp/
+            remote_src: true
+        - name: Make executable
+          ansible.builtin.file:
+            path: /tmp/xreinstall.sh
+            state: touch
+            owner: root
+            mode: u+x
+        - name: Update wine
+          ansible.builtin.command: ./xreinstall.sh
+          args:
+            chdir: /tmp/
+          changed_when: false
+...

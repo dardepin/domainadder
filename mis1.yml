@@ -1,0 +1,104 @@
+---
+# update wine to latest
+# usage: ansible-playbook mis1.yml
+- hosts: setup
+  become: true
+  remote_user: asergeev
+  gather_facts: true
+
+  tasks:
+    - name: Copy notify script for astra
+      when: ansible_distribution == "Astra Linux (Orel)"
+      ansible.builtin.copy:
+        src: files/notify-all-astra.sh
+        dest: /usr/bin/notify-all.sh
+        owner: root
+        mode: '0700'
+
+    - name: Copy notify script for ubuntu
+      when: ansible_distribution == "Ubuntu"
+      ansible.builtin.copy:
+        src: files/notify-all-ubuntu.sh
+        dest: /usr/bin/notify-all.sh
+        owner: root
+        mode: '0700'
+
+    - name: Check for existing wine install
+      ansible.builtin.stat:
+        path: /opt/wine/bin/wine
+      register: result1
+      tags: winemis
+
+    - name: Get current wine version
+      ansible.builtin.command: /opt/wine/bin/wine --version
+      register: curwinever
+      when: "result1.stat.exists"
+      failed_when: false
+      changed_when: false
+      tags: winemis
+
+    - name: Wine already updated?
+      when: "result1.stat.exists and curwinever.stdout and curwinever.stdout in 'wine-7.8'"
+      block:
+        - name: Print updated
+          ansible.builtin.debug:
+            msg: "Nothing to upgrade, exiting"
+        - name: End play
+          ansible.builtin.meta: end_play
+
+    - name: Continuing
+      ansible.builtin.debug:
+        msg: "need to update wine from {{ curwinever }} to wine-7.8"
+
+    - name: Warn users to close app
+      ansible.builtin.command: /usr/bin/notify-all.sh -t 60000 "Предупреждение" "Идет обновление. МИС закроется через минуту, не запускайте МИС и Вакцинопорфилактику"
+      changed_when: false
+
+    - name: Sleep for minute
+      ansible.builtin.wait_for:
+        timeout: 60
+      delegate_to: localhost
+
+    - name: Get running mis processes
+      ansible.builtin.shell: "ps -few | grep -v grep | grep -w 'client.exe' | awk '{print $2}'"
+      register: running_processes
+      changed_when: false
+
+    - name: Kill running mis processes
+      ansible.builtin.command: "kill {{ item }}"
+      with_items: "{{ running_processes.stdout_lines }}"
+      changed_when: false
+    - name: Wait for process stop
+      ansible.builtin.wait_for:
+        path: "/proc/{{ item }}/status"
+        state: absent
+      with_items: "{{ running_processes.stdout_lines }}"
+      ignore_errors: true
+      register: killed_processes
+    - name: Force kill stuck mis processes
+      ansible.builtin.command: "kill -9 {{ item }}"
+      with_items: "{{ killed_processes.results | select('failed') | map(attribute='item') | list }}"
+      changed_when: false
+
+    - name: Find winemis in home dirs
+      ansible.builtin.find:
+        paths: /home
+        patterns: "winemis"
+        recurse: true
+        file_type: directory
+      register: homes
+    - name: Deleting mis dirs, if exists
+      ansible.builtin.file:
+        path: "{{ item.path }}/winemis/"
+        state: absent
+      with_items: "{{ homes.files }}"
+      ignore_errors: true
+
+    - name: Finally update wine
+      ansible.builtin.shell: curl -fsSL https://misupd.med.cap.ru/files/reinstall.sh | sudo -E bash -
+      changed_when: false
+
+    - name: Warn users to continue
+      ansible.builtin.command: /usr/bin/notify-all -t 60000 "Предупреждение" "Обновление завершено. Можно запускать МИС"
+      changed_when: false
+...

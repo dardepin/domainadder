@@ -1,0 +1,37 @@
+---
+# enter pc to med.cap.ru domain
+# usage: ansible-playbook domain.yml --ask-vault-pass
+- hosts: setup
+  become: true
+  remote_user: asergeev
+  gather_facts: true
+  any_errors_fatal: true
+  tasks:
+    - name: Add vars
+      ansible.builtin.include_vars:
+        file: astra.yml
+
+    - name: Join to ad
+      ansible.builtin.shell: "echo -n {{ domain_password }} | sudo adcli join --verbose --domain {{ domain }} --domain-realm {{ domain|upper }} --domain-controller  {{ domain_controller }} --computer-ou {{ domain_ou }} --login-type user --user {{ domain_admin }} --stdin-password --verbose"
+      register: result1
+      changed_when: false
+
+    - name: Display adcli res
+      ansible.builtin.debug:
+        msg: "res: {{ result1.rc }}; msg: {{ result1 }}"
+
+    - name: Create computer in ad
+      ansible.builtin.shell: "echo {{ domain_password }} | sudo astra-ad-sssd-client -d {{ domain }} -u {{ domain_admin }} -n {{ domain_controller }} -y -px"
+      # args:
+      # stdin: "{{ domain_password }}\n"
+      # cat /root/pass | sudo astra-ad-sssd-client -d domain.net -u admin -px -y
+      register: result2
+      changed_when: false
+
+    - name: Display sssd res
+      ansible.builtin.debug:
+        msg: "res: {{ result2.rc }}; msg: {{ result2.stdout }}"
+
+    - name: Restart a pc # reboot command required ansible 2.7
+      ansible.builtin.reboot:
+...

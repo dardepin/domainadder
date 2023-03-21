@@ -1,0 +1,27 @@
+---
+# modifying enviornment for a new proxy settings in astra
+# usage: ansible-playbook noproxy.yml
+- hosts: all
+  become: true
+  remote_user: asergeev
+
+  tasks:
+    - name: Change proxy setting in ev
+      ansible.builtin.copy:
+        src: files/environment_astra
+        dest: /etc/environment
+        mode: '0644'
+    - name: Change proxy settings in profile
+      ansible.builtin.copy:
+        src: files/proxy.sh
+        dest: /etc/profile.d/proxy.sh
+        mode: '0755'
+    - name: Copy notify script for astra
+      ansible.builtin.copy:
+        src: files/notify-all-astra.sh
+        dest: /usr/bin/notify-all
+        mode: '0700'
+    - name: Warn users to close app
+      ansible.builtin.command: /usr/bin/notify-all -t 60000 "Предупреждение" "Перезагрузите компьютер, чтобы сайты egisz вновь заработали"
+      changed_when: false
+...

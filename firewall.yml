@@ -1,0 +1,45 @@
+---
+# playbook for installing Vipnet personal firewall for Ubuntu hosts
+# usage: ansible-playbook firewall.yml
+- hosts: fap
+  become: true
+  remote_user: asergeev
+  gather_facts: true
+  tasks:
+
+    - name: Disable ufw # or ufw may block all network traffic
+      ansible.builtin.command: ufw --force disable
+      changed_when: false
+
+    - name: Copy Firewall agent
+      ansible.builtin.copy:
+        src: files/Vipnet-ids-hs-agent_1.2.5.276.amd64.deb
+        dest: /tmp/agent.deb
+        owner: root
+        mode: '0644'
+    - name: Copy Firewall
+      ansible.builtin.copy:
+        src: files/ViPNetPersonalFirewall_ASTRA_4.5.0.77_all.deb
+        dest: /tmp/firewall.deb
+        owner: root
+        mode: '0644'
+    - name: Copy license
+      ansible.builtin.copy:
+        src: files/vipnet_licenses/{{ ansible_hostname }}.itcslic
+        dest: /tmp/license.itcslic
+        owner: root
+        mode: '0644'
+
+    - name: Install agent
+      ansible.builtin.apt:
+        deb: /tmp/agent.deb
+    - name: Install firewall
+      ansible.builtin.apt:
+        deb: /tmp/firewall.deb
+
+    - name: Restart fw service
+      ansible.builtin.service:
+        name: fw_service
+        state: started
+        enabled: true
+...

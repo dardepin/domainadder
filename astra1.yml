@@ -1,0 +1,116 @@
+---
+# first stage setup of Astra 2.12. do not forget to change usernames, passwords and hostname by gensecrets tool
+# usage: ansible-playbook astra1.yml --ask-pass --ask-vault-pass
+- hosts: setup
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Add vars
+      ansible.builtin.include_vars:
+        astra.yml
+    - name: Sync time
+      ansible.builtin.command: ntpq -p
+      changed_when: false
+    - name: Proxy for wget
+      ansible.builtin.lineinfile:
+        path: /etc/wgetrc
+        line: "use_proxy=yes\nhttp_proxy=192.168.192.93:3128\nhttps_proxy=192.168.192.93:3128"
+
+    - name: Backup old sources
+      ansible.builtin.copy:
+        src: /etc/apt/sources.list
+        dest: /etc/apt/sources.list.backup
+        remote_src: true
+        mode: '0644'
+    - name: Changing repos to yandex
+      ansible.builtin.copy:
+        src: files/sources_astra.list
+        dest: /etc/apt/sources.list
+        owner: 'root'
+        mode: '0644'
+
+    - name: Install necessary packages
+      ansible.builtin.apt:
+        name:
+          - openssh-server
+          - mc
+          - sudo
+          - htop
+          - iotop
+          - lm-sensors
+          - python-apt
+          - freerdp2-x11
+          - zenity
+          - ufw
+          - yad
+          - libnss3-tools
+          - screen
+          - cifs-utils
+          - nfs-common
+          - pcscd
+        state: present
+    # setup users
+    - name: Add admin user
+      ansible.builtin.user:
+        name: "{{ user1 }}"
+        comment: "{{ username1 }}"
+        shell: "/bin/bash"
+        groups: astra-admin, lpadmin
+        append: true
+        password: "{{ password1 }}"
+    - name: Add doctor user
+      ansible.builtin.user:
+        name: "{{ user2 }}"
+        comment: "{{ username2 }}"
+        shell: "/bin/bash"
+        password: "{{ password2 }}"
+    - name: Add ssh key for admin
+      ansible.posix.authorized_key:
+        user: "{{ user1 }}"
+        key: "{{ lookup('file', 'files/150.pub') }}"
+    - name: Passwordless sudo
+      ansible.builtin.lineinfile:
+        dest: "/etc/sudoers"
+        regexp: "^%lpadmin"
+        line: "%lpadmin ALL=(ALL) NOPASSWD: ALL"
+
+    # setup hostname
+    - name: Set a new hostname # hostname module cannot be used on platform Linux (\astralinuxce\). change by shell command
+      # hostname: name: "{{ hostname }}"
+      ansible.builtin.command: hostnamectl set-hostname {{ hostname }}
+      changed_when: false
+    - name: Set hostname in etc-hosts file
+      ansible.builtin.lineinfile:
+        path: "/etc/hosts"
+        regexp: "^127.0.1.1"
+        line: "127.0.1.1 {{ hostname }} {{ hostname }}.{{ domain }}"
+
+    # ssh setup. do not restart sshd
+    - name: Change ssh port
+      ansible.builtin.lineinfile:
+        path: "/etc/ssh/sshd_config"
+        regexp: "^#Port 22"
+        line: "Port 225"
+    - name: Change ssh auth
+      ansible.builtin.lineinfile:
+        path: "/etc/ssh/sshd_config"
+        regexp: "^#PasswordAuthentication yes"
+        line: "PasswordAuthentication no"
+    - name: Disallow ssh for root
+      ansible.builtin.lineinfile:
+        path: "/etc/ssh/sshd_config"
+        regexp: "^#PermitRootLogin yes"
+        line: "PermitRootLogin no"
+
+    - name: Cups config
+      ansible.builtin.copy:
+        src: files/cupsd_astra.conf
+        dest: /etc/cups/cupsd.conf
+        owner: root
+        mode: '0644'
+
+    # chrome & rtoken installers moved to separate playbook
+
+    - name: Restart a pc # reboot command required ansible 2.7
+      ansible.builtin.reboot:

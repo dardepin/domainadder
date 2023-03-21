@@ -1,0 +1,237 @@
+---
+# setup for Xubuntu 20.04. pre-required nopasswd sudo and openssh server runnung
+# do not forget to delete test user after
+# usage: ansible-playbook ubuntu.yml --ask-pass --ask-vault-pass
+- hosts: setup
+  become: true
+  remote_user: test
+
+  tasks:
+    - name: Add vars
+      ansible.builtin.include_vars:
+        ubuntu.yml
+    - name: Proxy for wget # commented, cause no proxy req
+      ansible.builtin.lineinfile:
+        path: /etc/wgetrc
+        line: "#use_proxy=yes\n#http_proxy=192.168.192.93:3128\n#https_proxy=192.168.192.93:3128"
+    - name: Sync time with hw clock
+      ansible.builtin.command: "timedatectl set-local-rtc 1 --adjust-system-clock"
+      changed_when: false
+
+    - name: Disable auto upgrades
+      ansible.builtin.copy:
+        src: files/20auto-upgrades
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        mode: '0644'
+
+    - name: Setup hostanme
+      block:
+        - name: Set a new hostname
+          ansible.builtin.hostname:
+            name: "{{ hostname }}.{{ domain }}"
+        - name: Set hostname in /etc/hosts
+          ansible.builtin.lineinfile:
+            path: "/etc/hosts"
+            regexp: "^127.0.1.1"
+            line: "127.0.1.1 {{ hostname }}.{{ domain }} {{ hostname }}"
+
+    - name: First reboot
+      ansible.builtin.reboot:
+
+    - name: Add to domain
+      ansible.builtin.shell: "echo {{ domain_password }} | realm join --verbose --user={{ domain_admin }} --computer-ou=OU=Компьютеры,OU=Yaltch-CRB,OU=CRB,OU=LPU,OU=MED,DC=med,DC=cap,DC=ru {{ domain }} --install=/"
+      register: result2
+      changed_when: false
+    - name: Display realm join res
+      ansible.builtin.debug:
+        msg: "res: {{ result2.rc }}; msg: {{ result2.stdout }}"
+    - name: Copy realmd.conf
+      ansible.builtin.copy:
+        src: files/realmd.conf
+        dest: /etc/realmd.conf
+        mode: '0644'
+    - name: Copy common-session
+      ansible.builtin.copy:
+        src: files/common-session
+        dest: /etc/pam.d/common-session
+        mode: '0644'
+    - name: Copy sssd.conf
+      ansible.builtin.copy:
+        src: files/sssd.conf
+        dest: /etc/sssd/sssd.conf
+        mode: '0600'
+    - name: Second reboot
+      ansible.builtin.reboot:
+
+    - name: Install packages
+      block:
+        - name: Install necessary packages
+          ansible.builtin.apt:
+            name:
+              - mc
+              - sudo
+              - htop
+              - iotop
+              - lm-sensors
+              - python-apt
+              - ufw
+              - libnss3-tools
+              - cifs-utils
+              - nfs-common
+              - pcscd
+              - remmina
+              - tmux
+            state: present
+        - name: Remove ippusbxd # fix priner issues
+          ansible.builtin.apt:
+            name: ippusbxd
+            state: absent
+            purge: true
+
+    - name: New users
+      block:
+        - name: Add admin user
+          ansible.builtin.user:
+            name: "{{ user1 }}"
+            comment: "{{ username1 }}"
+            shell: "/bin/bash"
+            groups: sudo, lpadmin
+            append: true
+            password: "{{ password1 }}"
+        - name: Add doctor user
+          ansible.builtin.user:
+            name: "{{ user2 }}"
+            comment: "{{ username2 }}"
+            shell: "/bin/bash"
+            password: "{{ password2 }}"
+        - name: Add ssh key for admin
+          ansible.posix.authorized_key:
+            user: "{{ user1 }}"
+            key: "{{ lookup('file', 'files/150.pub') }}"
+        - name: Passwordless sudo for admin
+          ansible.builtin.lineinfile:
+            dest: "/etc/sudoers"
+            regexp: "^%sudo"
+            line: "%sudo ALL=(ALL) NOPASSWD: ALL"
+
+    - name: Chrome & rutoken
+      block:
+        - name: Copy chrome
+          ansible.builtin.copy:
+            src: files/google-chrome-stable_current_amd64.deb
+            dest: /tmp/google-chrome-stable_current_amd64.deb
+            mode: '0644'
+        - name: Install chrome
+          ansible.builtin.apt:
+            deb: /tmp/google-chrome-stable_current_amd64.deb
+        - name: Copy rutoken
+          ansible.builtin.copy:
+            src: files/libnpRutokenPlugin.deb
+            dest: /tmp/libnpRutokenPlugin.deb
+            mode: '0644'
+        - name: Install rutoken
+          ansible.builtin.apt:
+            deb: /tmp/libnpRutokenPlugin.deb
+
+    - name: Trust russian cert
+      block:
+        - name: Copy russian root cert
+          ansible.builtin.copy:
+            src: files/russian_trust_root_ca.crt
+            dest: /usr/local/share/ca-certificates/russian_trust_root_ca.crt
+            mode: '0755'
+        - name: Trust russian root cert
+          ansible.builtin.command: update-ca-certificates
+          changed_when: false
+
+    - name: Drweb
+      block:
+        - name: Copy drweb license file
+          ansible.builtin.copy:
+            src: files/certificate.pem
+            dest: /home/{{ user1 }}/certificate.pem
+            mode: '0644'
+        - name: Activate dr web
+          ansible.builtin.command: drweb-ctl esconnect 192.168.92.41:2193 --Certificate /home/{{ user1 }}/certificate.pem --Newbie
+          register: result1
+          failed_when: "result1.rc != 0 and result1.rc != 69"
+          changed_when: false
+
+    - name: Vipnet
+      block:
+        - name: Iptables off
+          ansible.builtin.lineinfile:
+            dest: "/etc/vipnet.conf"
+            regexp: ";iptables=off"
+            line: "iptables=off"
+        - name: Change dns
+          ansible.builtin.lineinfile:
+            dest: "/etc/vipnet.conf"
+            regexp: "trusted=8.8.8.8"
+            line: "trusted=192.168.92.3"
+
+    - name: Disabling proxy everythere
+      block:
+        - name: Disabling proxy for apt
+          ansible.builtin.command: mv /etc/apt/apt.conf /etc/apt/apt.conf.bak
+          changed_when: false
+        - name: Disabling proxy for env
+          ansible.builtin.command: mv /etc/environment /etc/environment.bak
+          changed_when: false
+        - name: Disabling proxy for proxy.sh
+          ansible.builtin.command: mv /etc/profile.d/proxy.sh /etc/profile.d/proxy.sh.bak
+          changed_when: false
+
+    - name: Egisz and esia
+      ansible.builtin.lineinfile:
+        dest: /etc/hosts
+        line: " 46.61.237.65 ia.egisz.rosminzdrav.ru\n46.61.237.90 vaccine.egisz.rosminzdrav.ru\n109.207.2.205 esia.gosuslugi.ru\n"
+
+    - name: Cups config
+      ansible.builtin.copy:
+        src: files/cupsd_ubuntu.conf
+        dest: /etc/cups/cupsd.conf
+        mode: '0644'
+
+    - name: SSH
+      block:
+        - name: Change ssh port
+          ansible.builtin.lineinfile:
+            path: "/etc/ssh/sshd_config"
+            regexp: "^#Port 22"
+            line: "Port 225"
+        - name: Change ssh auth
+          ansible.builtin.lineinfile:
+            path: "/etc/ssh/sshd_config"
+            regexp: "^#PasswordAuthentication yes"
+            line: "PasswordAuthentication no"
+        - name: Disallow ssh for root
+          ansible.builtin.lineinfile:
+            path: "/etc/ssh/sshd_config"
+            regexp: "^#PermitRootLogin yes"
+            line: "PermitRootLogin no"
+
+    - name: Firewall
+      block:
+        - name: Deny incoming
+          ansible.builtin.command: ufw default deny incoming
+          changed_when: false
+        - name: Allow outgoing
+          ansible.builtin.command: ufw default allow outgoing
+          changed_when: false
+        - name: Allow ssh
+          ansible.builtin.command: ufw allow 225
+          changed_when: false
+        - name: Allow cups
+          ansible.builtin.command: ufw allow 631
+          changed_when: false
+        - name: Allow vnc
+          ansible.builtin.command: ufw allow 5900
+          changed_when: false
+        - name: Enable fw
+          ansible.builtin.command: ufw --force enable
+          changed_when: false
+
+    - name: Restart a pc
+      ansible.builtin.reboot:
+...

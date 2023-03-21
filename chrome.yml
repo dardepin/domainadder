@@ -1,0 +1,81 @@
+---
+# install new chrome, rutoken and russian root crt for users
+# using: ansible-playbook chrome.yml
+- hosts: setup
+  become: true
+  remote_user: asergeev
+  gather_facts: true
+  # vars: #move to group vars
+  tasks:
+    - name: Facts gathering
+      ansible.builtin.package_facts:
+        manager: auto
+    - name: Install reqiured packet
+      ansible.builtin.apt:
+        name:
+          - libnss3-tools
+          - python-apt
+        state: present
+
+    - name: Install libu2f-udev for Astra # cause no package named `libu2f-udev` in repos
+      when: "'libu2f-udev' not in ansible_facts.packages and ansible_distribution == 'Astra Linux (Orel)'"
+      block:
+        - name: Copy libu2f-udev
+          ansible.builtin.copy:
+            src: files/libu2f-udev_1.1.9-1_all.deb
+            dest: /tmp/libu2f-udev.deb
+            mode: '0644'
+        - name: Install libu2f-udev
+          ansible.builtin.apt:
+            deb: "/tmp/libu2f-udev.deb"
+
+    - name: Install chrome
+      when: "'google-chrome-stable' not in ansible_facts.packages or ansible_facts.packages['google-chrome-stable'][0].version not in NEWEST_CHROME"
+      block:
+        - name: Newest chrome?
+          ansible.builtin.debug:
+            msg: "Google Chrome is not installed or outdated"
+        - name: Copy google chrome
+          ansible.builtin.copy:
+            src: files/google-chrome-stable_current_amd64.deb
+            dest: /tmp/google-chrome-stable_current_amd64.deb
+            mode: '0644'
+        - name: Install new chrome
+          ansible.builtin.apt:
+            deb: "/tmp/google-chrome-stable_current_amd64.deb"
+
+    - name: Install rutoken
+      when: "'rutokenplugin' not in ansible_facts.packages or ansible_facts.packages['rutokenplugin'][0].version not in NEWEST_RUTOKEN"
+      block:
+        - name: Newest rutoken?
+          ansible.builtin.debug:
+            msg: "rutoken is not installed or outdated"
+        - name: Copy rutoken?
+          ansible.builtin.copy:
+            src: files/libnpRutokenPlugin.deb
+            dest: /tmp/libnpRutokenPlugin.deb
+            mode: '0644'
+        - name: Install rutoken
+          ansible.builtin.apt:
+            deb: /tmp/libnpRutokenPlugin.deb
+
+    - name: Copy cert
+      ansible.builtin.copy:
+        src: files/russian_trust_root_ca.crt
+        dest: /usr/local/share/ca-certificates/russian_trust_root_ca.crt
+        mode: '0755'
+    - name: Install cert for all users
+      ansible.builtin.command: update-ca-certificates
+      changed_when: false
+    - name: Find home dirs
+      ansible.builtin.find:
+        paths: /home
+        patterns: "nssdb"
+        recurse: true
+        file_type: directory
+      register: homes
+    - name: Installing cert to users home folders
+      ansible.builtin.command: certutil -d sql:{{ item.path }} -A -t TC -n "Russian Trusted Root"  -i /usr/local/share/ca-certificates/russian_trust_root_ca.crt
+      with_items: "{{ homes.files }}"
+      changed_when: false
+...

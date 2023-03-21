@@ -1,0 +1,40 @@
+# deleting all .fly entries in /home dir and spool cleanung on reboot
+# usage ansible-playbook lordoftheflies.yml
+# find flycatcher and cleanspool scripts in repo
+---
+- hosts: setup
+  become: true
+  remote_user: asergeev
+  gather_facts: true
+  tasks:
+    - name: All actions
+      block:
+        - name: Copy flycatcher script
+          ansible.builtin.copy:
+            src: files/flycatcher.sh
+            dest: /usr/sbin/flycatcher.sh
+            owner: root
+            mode: '755'
+        - name: Install flycatcher crontab
+          ansible.builtin.cron:
+            name: "deleting all .fly entries in /home dir on a startup"
+            special_time: reboot
+            job: "/usr/sbin/flycatcher.sh"
+        - name: Exec flycatcher now
+          ansible.builtin.command: "/usr/sbin/flycatcher.sh"
+          register: findres
+          failed_when: findres.rc > 1
+          changed_when: false
+
+        - name: Copy cleanspool scsript
+          ansible.builtin.copy:
+            src: files/lprm.sh
+            dest: /usr/sbin/lprm.sh
+            owner: root
+            mode: '755'
+        - name: Install cleanspool crontab
+          ansible.builtin.cron:
+            name: "deleting printer queue"
+            special_time: reboot
+            job: "/usr/sbin/lprm.sh"
+...

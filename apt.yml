@@ -1,0 +1,19 @@
+---
+# change apt sources.list to yandex for Astra 2.12
+# usage: ansible-playbook apt.yml
+- hosts: all
+  become: true
+  remote_user: asergeev
+  tasks:
+    - name: Backup old sources
+      ansible.builtin.copy:
+        src: /etc/apt/sources.list
+        dest: /etc/apt/sources.list.backup
+        remote_src: true
+        mode: '0644'
+    - name: Change repos
+      ansible.builtin.copy:
+        src: files/sources_astra.list
+        dest: /etc/apt/sources.list
+        mode: '0644'
+...
