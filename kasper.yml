@@ -1,0 +1,149 @@
+---
+# playbook for removing dr web and installing kasper
+# usage: ansible-playbook kasper.yml
+- hosts: ped
+  become: true
+  remote_user: asergeev
+  gather_facts: true
+  tasks:
+    - name: Copy notify script for Astra
+      ansible.builtin.copy:
+        src: files/notify-all-astra.sh
+        dest: /usr/bin/notify-all
+        owner: root
+        mode: '0700'
+      when: ansible_distribution == "Astra Linux (Orel)"
+
+    - name: Copy notify script for Ubuntu
+      ansible.builtin.copy:
+        src: files/notify-all-ubuntu.sh
+        dest: /usr/bin/notify-all
+        owner: root
+        mode: '0700'
+      when: ansible_distribution == "Ubuntu"
+
+    - name: Check for existing kes install
+      ansible.builtin.stat:
+        path: "/usr/bin/kesl-control"
+      register: result1
+
+    - name: Get current KES version
+      ansible.builtin.shell: kesl-control --app-info |grep "^Версия:" | awk  '{print $2}'
+      register: kesver
+      when: "result1.stat.exists"
+      failed_when: false
+      changed_when: false
+    - name: Print kes version
+      ansible.builtin.debug:
+        msg: "{{ kesver.stdout }}"
+      when: "result1.stat.exists"
+
+    - name: Stop to play
+      when: "result1.stat.exists and kesver.stdout and kesver.stdout in '11.3.0.7508'"
+      block:
+        - name: No update required
+          ansible.builtin.debug:
+            msg: "Nothing to upgrade, exiting"
+        - name: End play
+          ansible.builtin.meta: end_host
+
+    - name: Check for existing drweb install
+      ansible.builtin.stat:
+        path: /opt/drweb.com/bin/drweb-ctl
+      register: result2
+
+    - name: Get current drweb version
+      ansible.builtin.command: drweb-ctl -v
+      register: drwebver
+      when: "result2.stat.exists"
+      failed_when: false
+      changed_when: false
+    - name: Print drweb version
+      ansible.builtin.debug:
+        msg: "{{ drwebver.stdout }}"
+      when: "result2.stat.exists"
+
+
+    - name: Uninstall old AV
+      when: "result2.stat.exists and drwebver.stdout"
+      block:
+        - name: Update required
+          ansible.builtin.debug:
+            msg: "Need to uninstall DRWEB first"
+        - name: Notify users to reboot
+          ansible.builtin.command: /usr/bin/notify-all -t 60000 "Предупреждение" "Компьютер будет перезагружен через одну минуту для переустановки антивируса. Сохраните все документы"
+          changed_when: false
+        - name: Wait for users
+          ansible.builtin.wait_for:
+            timeout: 60
+          delegate_to: localhost
+        - name: Delete old drweb
+          ansible.builtin.command: /opt/drweb.com/bin/remove.sh --non-interactive
+          changed_when: false
+        - name: Reboot after deleting DRWEB
+          ansible.builtin.reboot:
+
+    - name: Copy and unarchive KES archive
+      ansible.builtin.copy:
+        src: files/KESL_11.3.0.7508.zip
+        dest: /tmp/KESL_11.3.0.7508.zip
+        owner: root
+        mode: '600'
+    - name: Extract installer
+      ansible.builtin.unarchive:
+        src: /tmp/KESL_11.3.0.7508.zip
+        dest: /tmp/
+        remote_src: true
+    - name: Remove KES archive
+      ansible.builtin.file:
+        path: /tmp/KESL_11.3.0.7508.zip
+        state: absent
+    - name: Install KES agent
+      ansible.builtin.apt:
+        deb: /tmp/KESL_11.3.0.7508/klnagent/klnagent64_14.0.0-4646_amd64.deb
+    - name: Configure KES agent
+      ansible.builtin.command: /opt/kaspersky/klnagent64/lib/bin/setup/postinstall.pl
+      environment:
+        KLAUTOANSWERS: '/tmp/KESL_11.3.0.7508/klnagent/agent.txt'
+      changed_when: false
+
+    - name: Run klnagchk
+      ansible.builtin.shell: /opt/kaspersky/klnagent64/bin/klnagchk | grep "Server address" |awk  '{print $3}' | tr -d \'
+      register: kesserver
+      changed_when: false
+
+    - name: Check KES agent
+      when: "not kesserver.stdout or kesserver.stdout not in 'kav.med.cap.ru'"
+      block:
+        - name: Failed to connect
+          ansible.builtin.debug:
+            msg: "Agent failed to connect to server: {{ kesserver.stdout }}"
+        - name: End play
+          ansible.builtin.meta: end_host
+
+    - name: Install KES
+      ansible.builtin.apt:
+        deb: /tmp/KESL_11.3.0.7508/kesl/kesl_11.3.0-7508.cert_amd64.deb
+    - name: Install KES gui
+      ansible.builtin.apt:
+        deb: /tmp/KESL_11.3.0.7508/kesl/gui/kesl-gui_11.3.0-7508.cert_amd64.deb
+
+    - name: Configure KES
+      ansible.builtin.command: /opt/kaspersky/kesl/bin/kesl-setup.pl --autoinstall=/tmp/KESL_11.3.0.7508/kesl/autoinstall.ini
+      register: result3
+      changed_when: false
+
+    - name: Failed to configure KES
+      when: result3.rc != 71
+      block:
+        - name: Print warnin on error 71
+          ansible.builtin.debug:
+            msg: "Setup returned 71, may be this is OK"
+
+    - name: Notify users to complete
+      ansible.builtin.command: /usr/bin/notify-all -t 60000 "Информация" "Антивирус переустановлен, необходима перезагрузка. После нее можете продолжить работу"
+      changed_when: false
+
+    - name: Second reboot
+      ansible.builtin.reboot:
+...

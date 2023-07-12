@@ -3,3 +3,4 @@ files/
 bak/
 cp/
 tmp/
+*.json
