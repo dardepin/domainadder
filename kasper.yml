@@ -132,9 +132,10 @@
       ansible.builtin.command: /opt/kaspersky/kesl/bin/kesl-setup.pl --autoinstall=/tmp/KESL_11.3.0.7508/kesl/autoinstall.ini
       register: result3
       changed_when: false
+      ignore_errors: true
 
     - name: Failed to configure KES
-      when: result3.rc != 71
+      when: result3.rc == 71
       block:
         - name: Print warnin on error 71
           ansible.builtin.debug:
